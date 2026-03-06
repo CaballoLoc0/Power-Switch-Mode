@@ -17,7 +17,17 @@
 ## 🚀 Instalación y Uso
 
 1. Descargá el archivo compliado `Power Switch Mode.exe` desde la carpeta del proyecto.
-2. Ejecutalo (podés colocar un acceso directo en tu carpeta de *Inicio* de Windows para que corra al arrancar la PC).
+2. Ejecutalo para iniciar la aplicación manualemente.
+
+### 🔄 Iniciar con Windows (Automáticamente)
+Para que el programa comience automáticamente cada vez que encendés tu computadora:
+1. Hacé clic derecho sobre el archivo `Power Switch Mode.exe` y seleccioná **Crear acceso directo**.
+2. Presioná la combinación de teclas `Win + R` en tu teclado para abrir la ventana *Ejecutar*.
+3. Escribí exactamente el comando: `shell:startup` y apretá Enter. Se abrirá una carpeta de sistema.
+4. **Copiá y pegá** el acceso directo que creaste recién dentro de esa carpeta.
+
+**¡Listo!** El programa arrancará invisible y listo para usarse apenas inicies sesión en Windows.
+
 3. Presioná `Ctrl + Alt + P` para ciclar instantáneamente entre tus planes de rendimiento activos.
 
 *Si preferís usar el código fuente original, asegurate de tener instalado **AutoHotkey v2** y ejecutá `Power Switch Mode.ahk`.*
