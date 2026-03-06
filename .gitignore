@@ -1,0 +1,12 @@
+# Aplicación compilada
+# *.exe (Descomentar si no querés subir el ejecutable)
+
+# Archivos temporales o de errores de AutoHotkey
+*.bak
+*~
+ahk_pwr_out.txt
+
+# Carpetas y archivos de sistema
+.vscode/
+.idea/
+.DS_Store
