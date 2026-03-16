@@ -1,259 +1,156 @@
 ﻿#Requires AutoHotkey v2.0
-#SingleInstance Ignore
-KeyHistory 0
-ListLines false
+#SingleInstance Ignore ; Evita que se abran múltiples instancias de la aplicación
+KeyHistory 0           ; Desactiva el historial de teclas para mejorar el rendimiento
+ListLines false        ; Desactiva el registro de líneas para mayor velocidad
 
-; ============================================================
-; Power Switch Mode
+; ==============================================================================
+; POWER SWITCH MODE - PUNTO DE ENTRADA PRINCIPAL
+; ==============================================================================
 ; Autor: Martin F. Cervini
-; Email: marfercer@gmail.com
-; IG: @tinchoxp_
-; Version: 1.0 - 2026
-; ============================================================
+; Descripción: Aplicación premium para la gestión rápida de planes de energía
+;              y monitoreo de batería en sistemas Windows.
+; Versión: 1.3.1
+; ==============================================================================
 
-; --- SETTINGS ---
+; --- 1. LIBRERÍAS Y COMPONENTES DE UI ---
+; Cargamos las dependencias necesarias para la lógica y la interfaz
+#Include "lib\Utils.ahk"            ; Funciones de utilidad general
+#Include "lib\PowerPlans.ahk"       ; Lógica de gestión de planes de energía
+#Include "lib\BatteryMonitor.ahk"    ; Monitoreo de estado de batería
+#Include "ui\Banner.ahk"            ; Sistema de notificaciones visuales (Banners)
+#Include "ui\SettingsGui.ahk"       ; Interfaz de configuración y "Acerca de"
+
+; --- 2. CONFIGURACIÓN E INICIALIZACIÓN ---
+; Definimos la ruta de la carpeta de datos en AppData del usuario
 AppDataFolder := A_AppData . "\Power Switch Mode"
 if not DirExist(AppDataFolder)
     DirCreate(AppDataFolder)
 
+; Definimos el archivo de configuración (.ini) y el atajo por defecto
 SETTINGS_FILE := AppDataFolder . "\config.ini"
-DEFAULT_HOTKEY := "^!p" ; Ctrl + Alt + P
+DEFAULT_HOTKEY := "^!p" ; Atajo por defecto: Ctrl + Alt + P
 
+; Leemos el atajo guardado o usamos el por defecto si no existe
 HOTKEY_SWITCH := IniRead(SETTINGS_FILE, "General", "Atajo", DEFAULT_HOTKEY)
 
-; Obtener planes dinámicamente del sistema
-PLANES := []
-ObtenerPlanesSistema()
+; --- AJUSTES ESPECÍFICOS DE BATERÍA ---
+; Leemos las preferencias del usuario para las alarmas de batería
+MONITOR_VISIBLE := (IniRead(SETTINGS_FILE, "Battery", "AlarmaVisual", "1") = "1")
+MONITOR_SOUND := (IniRead(SETTINGS_FILE, "Battery", "AlarmaSonora", "1") = "1")
+ALARM_LEVEL := IniRead(SETTINGS_FILE, "Battery", "NivelBateria", "97")
+SOUND_TYPE := IniRead(SETTINGS_FILE, "Battery", "TipoSonido", "Premium")
 
-; --- TRAY MENU ---
+; Mapa de sonidos disponibles para las notificaciones
+SOUNDS := Map(
+    "Premium", "C:\Windows\Media\Windows Notify System Generic.wav",
+    "Brisa", "C:\Windows\Media\Windows Background.wav",
+    "Eco", "C:\Windows\Media\Windows Navigation Start.wav",
+    "Ding", "C:\Windows\Media\ding.wav"
+)
+
+; --- VARIABLES DE CONTROL OPERATIVO ---
+ALARM_FIRED := false      ; Indica si la alarma de carga baja ya se activó
+FULL_ALARM_FIRED := false ; Indica si la alarma de carga completa ya se activó
+PLANES := []              ; Almacenará la lista de planes de energía detectados
+
+; Inicializamos datos del sistema
+ObtenerPlanesSistema()    ; Escanea los planes de energía de Windows
+TIENE_BATERIA := SistemaTieneBateria() ; Detecta si el equipo tiene hardware de batería
+
+; --- 3. CONSTRUCCIÓN DEL MENÚ DE LA BANDEJA (TRAY MENU) ---
+; Personalizamos el menú que aparece al interactuar con el icono
 A_IconTip := "Power Switch Mode | Por: @TinchoXP_"
-A_TrayMenu.Delete()
+A_TrayMenu.Delete() ; Limpiamos el menú estándar de AHK
+
+; 3a. ACCIONES PRINCIPALES
 A_TrayMenu.Add("Cambiar Plan Ahora", CambiarPlan)
+A_TrayMenu.Default := "Cambiar Plan Ahora" ; Lo ponemos en NEGRITA y es la acción por defecto
+A_TrayMenu.Add() ; Separador visual
+
+; 3c. SECCIÓN DE BATERÍA (Solo se muestra si hay batería detectada)
+if TIENE_BATERIA {
+    MenuBateria := Menu()
+    MenuBateria.Add("𝗔𝗹𝗮𝗿𝗺𝗮 𝗩𝗶𝘀𝘂𝗮𝗹", AlternarAlarmaVisual)
+    if MONITOR_VISIBLE
+        MenuBateria.Check("𝗔𝗹𝗮𝗿𝗺𝗮 𝗩𝗶𝘀𝘂𝗮𝗹")
+
+    MenuBateria.Add("𝗔𝗹𝗮𝗿𝗺𝗮 𝗦𝗼𝗻𝗼𝗿𝗮", AlternarAlarmaSonora)
+    if MONITOR_SOUND
+        MenuBateria.Check("𝗔𝗹𝗮𝗿𝗺𝗮 𝗦𝗼𝗻𝗼𝗿𝗮")
+
+    MenuBateria.Add() ; Separador interno
+    MenuBateria.Add("Nivel: 80%", (*) => CambiarNivelAlarma("80"))
+    MenuBateria.Add("Nivel: 95%", (*) => CambiarNivelAlarma("95"))
+    MenuBateria.Add("Nivel: 97%", (*) => CambiarNivelAlarma("97"))
+    MenuBateria.Add("Nivel: 100%", (*) => CambiarNivelAlarma("100"))
+    ActualizarChecksNivel()
+
+    MenuBateria.Add() ; Separador interno
+    MenuSonidos := Menu()
+    MenuSonidos.Add("Notificación (Premium)", (*) => CambiarSonido("Premium"))
+    MenuSonidos.Add("Suave (Brisa)", (*) => CambiarSonido("Brisa"))
+    MenuSonidos.Add("Súper Sutil (Eco)", (*) => CambiarSonido("Eco"))
+    MenuSonidos.Add("Clásico (Ding)", (*) => CambiarSonido("Ding"))
+    ActualizarChecksSonido()
+    MenuBateria.Add("𝗧𝗶𝗽𝗼 𝗱𝗲 𝗦𝗼𝗻𝗶𝗱𝗼", MenuSonidos)
+
+    ; Agregamos el submenú de batería al menú principal con estilo resaltado (Unicode)
+    A_TrayMenu.Add("𝗔𝗹𝗲𝗿𝘁𝗮𝘀 𝗱𝗲 𝗕𝗮𝘁𝗲𝗿𝗶𝗮", MenuBateria)
+    A_TrayMenu.Add() ; Separador visual
+}
+
+; 3d. CONFIGURACIÓN E INFORMACIÓN
 A_TrayMenu.Add("Configurar Atajo", (*) => MostrarConfiguracion())
-A_TrayMenu.Add()
-A_TrayMenu.Add("Acerca de", (*) => MostrarAcercaDe())
-A_TrayMenu.Add()
+
+; 3b. INTEGRACIÓN CON EL SISTEMA
+A_TrayMenu.Add("Iniciar con Windows", AlternarInicioDesdeTray)
+if EsInicioAutomatico()
+    A_TrayMenu.Check("Iniciar con Windows")
+A_TrayMenu.Add() ; Separador visual
+A_TrayMenu.Add("𝗔𝗰𝗲𝗿𝗰𝗮 𝗱𝗲", (*) => MostrarAcercaDe())
 A_TrayMenu.Add("Salir", (*) => ExitApp())
+
+; --- 4. DESPLIEGUE Y MANEJO DE EVENTOS ---
+; Configuramos el icono de la aplicación
 if not A_IsCompiled {
-    try TraySetIcon(A_ScriptDir . "\power_switch_icon.png")
-}
-A_TrayMenu.Default := "Acerca de"
-
-; --- HOTKEYS ---
-Hotkey HOTKEY_SWITCH, CambiarPlan
-DllCall("psapi\EmptyWorkingSet", "ptr", -1)
-
-; ==============================================================
-; CAMBIAR PLAN
-; ==============================================================
-CambiarPlan(*) {
-    Global PLANES
-    try {
-        ObtenerPlanesSistema()
-
-        if (PLANES.Length <= 1) {
-            MostrarBanner("Solo hay 1 plan disponible", "Rojo")
-            return
-        }
-
-        ; Obtener GUID del plan activo
-        linea := LeerComando("powercfg /getactivescheme")
-
-        indiceActual := 0
-        for index, plan in PLANES {
-            if InStr(linea, plan.guid) {
-                indiceActual := index
-                break
-            }
-        }
-
-        ; Siguiente plan (cíclico)
-        siguienteIndice := (indiceActual >= PLANES.Length || indiceActual = 0) ? 1 : indiceActual + 1
-        planSiguiente := PLANES[siguienteIndice]
-
-        ; Cambiar plan
-        RunWait "powercfg /setactive " . planSiguiente.guid, , "Hide"
-        ; Determinar color del plan
-        colorPlan := "White"
-        if InStr(planSiguiente.nombre, "Máximo")
-            colorPlan := "F24F2C" ; Rojo
-        else if InStr(planSiguiente.nombre, "Alto")
-            colorPlan := "F2B32C" ; Naranja
-        else if InStr(planSiguiente.nombre, "Equilibrado")
-            colorPlan := "31C950" ; Verde
-        else if InStr(planSiguiente.nombre, "Economizador")
-            colorPlan := "4EA8DE" ; Celeste
-
-        nombreLimpio := Trim(RegExReplace(planSiguiente.nombre, "i)\s*rendimiento\s*", ""))
-        MostrarBanner(nombreLimpio, colorPlan)
-    } catch Error as err {
-        MostrarBanner("Error: " . err.Message, "Rojo")
-    }
-    DllCall("psapi\EmptyWorkingSet", "ptr", -1)
+    iconPath := A_ScriptDir . "\assets\power_switch_icon.png"
+    if !FileExist(iconPath)
+        iconPath := A_ScriptDir . "\assets\power_switch_icon.ico"
+    try TraySetIcon(iconPath)
 }
 
-; ==============================================================
-; BANNER
-; ==============================================================
-MostrarBanner(mensaje, colorHex := "White") {
-    static MyGui := 0
-    if MyGui
-        MyGui.Destroy()
-    MyGui := Gui("+AlwaysOnTop -Caption +ToolWindow -DPIScale")
-    
-    esError := (colorHex = "Rojo")
-    MyGui.BackColor := esError ? "0x330000" : "0x1A1A1A"
+; Iniciamos los servicios de monitoreo en segundo plano
+if TIENE_BATERIA
+    GestionarTemporizador()
 
-    ; 1. Título principal (Subtítulo s9, limpio y en Negrita para destacar sin sombra)
-    MyGui.SetFont("s9 c7393B3 Bold", "Segoe UI Variable Display") 
-    MyGui.AddText("x18 y15 w250 BackgroundTrans", "POWER SWITCH MODE")
+; Registramos los mensajes del sistema y atajos globales
+OnMessage(0x404, TRAY_CLICK) ; Escucha clics en el icono de la bandeja (WM_USER + 4)
+Hotkey HOTKEY_SWITCH, CambiarPlan ; Registra el atajo de teclado global
+LiberarRAM() ; Optimización inicial de memoria
 
-    ; 2. Subtítulo 
-    MyGui.SetFont("s10 c999999", "Segoe UI Variable Text")
-    MyGui.AddText("x18 y+8 w250 BackgroundTrans", "Rendimiento:")
+; --- 5. FUNCIONES DE RETORNO (CALLBACKS) ---
 
-    ; 3. Símbolo y nombre del plan (Único campo completamente Centrado)
-    simbolo := esError ? "⚠ " : "🗲 "
-    textColor := esError ? "White" : colorHex
-
-    MyGui.SetFont("s18 c" . textColor . " Bold", "Segoe UI Variable Display")
-    MyGui.AddText("x0 y+2 w280 Center BackgroundTrans", simbolo . mensaje)
-
-    MonitorGetWorkArea(1, &Left, &Top, &Right, &Bottom)
-    BannerW := 280
-    BannerH := 115
-    FinalX := Right - BannerW - 20
-    FinalY := Bottom - BannerH - 20
-
-    MyGui.Show("x" . FinalX . " y" . FinalY . " w" . BannerW . " h" . BannerH . " NoActivate")
-    try DllCall("dwmapi\DwmSetWindowAttribute", "ptr", MyGui.Hwnd, "uint", 33, "int*", 2, "uint", 4)
-
-    SetTimer(CerrarBanner, -3000)
-    CerrarBanner() {
-        try MyGui.Destroy()
-        DllCall("psapi\EmptyWorkingSet", "ptr", -1)
-    }
+; TRAY_CLICK: Maneja las interacciones del ratón con el icono de la bandeja
+TRAY_CLICK(wParam, lParam, msg, hwnd) {
+    ; 0x202 = WM_LBUTTONUP (Clic izquierdo soltado)
+    ; Permitimos que el menú se abra tanto con clic izquierdo como derecho
+    if (lParam = 0x202)
+        A_TrayMenu.Show()
 }
 
-; ==============================================================
-; CONFIGURACIÓN
-; ==============================================================
-MostrarConfiguracion() {
-    Global HOTKEY_SWITCH
-    ConfigGui := Gui("-MinimizeBox -MaximizeBox +AlwaysOnTop", "Configurar Atajo")
-    AplicarModoOscuro(ConfigGui.Hwnd)
-    ConfigGui.BackColor := "0x1A1A1A"
-    
-    ConfigGui.SetFont("s10 cWhite", "Segoe UI Variable Text")
-    ConfigGui.AddText("w300", "Presiona la combinación de teclas que deseas usar:")
-    
-    MyHotkeyCtrl := ConfigGui.AddHotkey("w300 h30", HOTKEY_SWITCH)
-    
-    ConfigGui.SetFont("s9 c888888")
-    ConfigGui.AddText("w300 Center", "(Ejemplo: Ctrl+Alt+P)")
-    
-    ConfigGui.SetFont("s10 cDefault")
-    BtnSave := ConfigGui.AddButton("w100 h30 x115", "Guardar")
-    BtnSave.OnEvent("Click", (*) => Guardar(MyHotkeyCtrl.Value))
-    
-    ConfigGui.Show("w330")
+; AlternarInicioDesdeTray: Maneja la opción de ejecución automática al iniciar Windows
+AlternarInicioDesdeTray(*) {
+    actual := EsInicioAutomatico()
+    AlternarInicioAutomatico(!actual) ; Cambia el estado en el Registro de Windows
 
-    Guardar(NuevoAtajo) {
-        Global HOTKEY_SWITCH
-        if (NuevoAtajo = "") {
-            MsgBox("Por favor, ingresa una combinación válida.", "Atención", "Icon!")
-            return
-        }
-        try {
-            Hotkey HOTKEY_SWITCH, "Off"
-            Hotkey NuevoAtajo, CambiarPlan, "On"
-            IniWrite(NuevoAtajo, SETTINGS_FILE, "General", "Atajo")
-            HOTKEY_SWITCH := NuevoAtajo
-            ConfigGui.Destroy()
-            MostrarBanner("Nuevo atajo: " . NuevoAtajo)
-        } catch Error as err {
-            MsgBox("Error: " . err.Message, "Error", "IconX")
-        }
-    }
-}
+    ; Actualizamos el visual del menú (tilde)
+    if !actual
+        A_TrayMenu.Check("Iniciar con Windows")
+    else
+        A_TrayMenu.Uncheck("Iniciar con Windows")
 
-; ==============================================================
-; ACERCA DE
-; ==============================================================
-MostrarAcercaDe() {
-    static AboutGui := 0
-    if AboutGui {
-        AboutGui.Show()
-        return
-    }
-    AboutGui := Gui("-MinimizeBox -MaximizeBox +AlwaysOnTop", "Acerca de")
-    AplicarModoOscuro(AboutGui.Hwnd)
-    AboutGui.OnEvent("Close", (*) => (AboutGui := 0))
-    AboutGui.BackColor := "0x1A1A1A"
-
-    ; Icono Centrado (Ventana 400 - Icono 64 = 336 / 2 = 168)
-    try {
-        if A_IsCompiled
-            AboutGui.AddPicture("w64 h-1 x168 y25 Icon1", A_ScriptFullPath)
-        else
-            AboutGui.AddPicture("w64 h-1 x168 y25", A_ScriptDir . "\power_switch_icon.png") 
-    }
-
-    ; Título
-    AboutGui.SetFont("s20 cWhite Bold", "Segoe UI Variable Display")
-    AboutGui.AddText("x0 y+15 w400 Center", "Power Switch Mode")
-
-    ; Eslogan
-    AboutGui.SetFont("s10 c888888", "Segoe UI Variable Text")
-    AboutGui.AddText("x0 y+5 w400 Center", "Gestión de energía eficiente y rápida")
-
-    ; Autor
-    AboutGui.SetFont("s11 cWhite w600", "Segoe UI Variable Text")
-    AboutGui.AddText("x0 y+25 w400 Center", "Autor: Martin F. Cervini")
-
-    ; Links
-    AboutGui.SetFont("s10 c4EA8DE Underline", "Segoe UI Variable Text")
-    LinkMail := AboutGui.AddText("x0 y+10 w400 Center", "marfercer@gmail.com")
-    LinkMail.OnEvent("Click", (*) => Run("mailto:marfercer@gmail.com"))
-
-    LinkIG := AboutGui.AddText("x0 y+5 w400 Center", "@tinchoxp_")
-    LinkIG.OnEvent("Click", (*) => Run("https://instagram.com/tinchoxp_"))
-
-    ; Copyright
-    AboutGui.SetFont("s9 c555555", "Segoe UI Variable Text")
-    AboutGui.AddText("x0 y+30 w400 Center", "v1.0 - Copyright © 2026")
-
-    AboutGui.Show("w400 h360")
-}
-
-; ==============================================================
-; UTILIDADES
-; ==============================================================
-ObtenerPlanesSistema() {
-    Global PLANES := []
-    output := LeerComando("powercfg /l")
-    for linea in StrSplit(output, "`n", "`r") {
-        if RegExMatch(linea, "i)([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}).*\((.+?)\)", &match) {
-            nombre := Trim(StrReplace(match[2], "*", ""))
-            PLANES.Push({ nombre: nombre, guid: match[1] })
-        }
-    }
-}
-
-; Lee la salida de un comando usando cmd + archivo temporal
-LeerComando(comando) {
-    tmpFile := A_Temp . "\ahk_pwr_out.txt"
-    RunWait(A_ComSpec . " /c " . comando . " > `"" . tmpFile . "`"", , "Hide")
-    try {
-        result := FileRead(tmpFile, "CP850")
-        FileDelete(tmpFile)
-        return result
-    }
-    catch {
-        return ""
-    }
-}
-
-AplicarModoOscuro(Hwnd) {
-    try DllCall("dwmapi\DwmSetWindowAttribute", "ptr", Hwnd, "uint", 20, "int*", 1, "uint", 4)
+    ; Notificamos al usuario con un banner estilizado
+    msg := "Inicio con Windows: " . (!actual ? "Activado" : "Desactivado")
+    color := !actual ? "31C950" : "4e6a7b" ; Verde para activar, Azul Acero para desactivar
+    MostrarBanner(msg, color, "System", 3000)
 }
