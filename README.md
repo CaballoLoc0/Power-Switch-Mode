@@ -1,6 +1,6 @@
 # Power Switch Mode ⚡
 
-![Versión](https://img.shields.io/badge/version-1.0-blue.svg)
+![Versión](https://img.shields.io/badge/version-1.3.3-blue.svg)
 ![Plataforma](https://img.shields.io/badge/platform-Windows_10%20%7C%2011-lightgrey.svg)
 ![Lenguaje](https://img.shields.io/badge/language-AutoHotkey_v2-green.svg)
 
